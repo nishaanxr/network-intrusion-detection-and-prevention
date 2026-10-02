@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Network IDS Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .live-dot { width: 8px; height: 8px; background: #3fb950; border-radius: 50%; display: inline-block; margin-right: 6px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .status-bar { font-size: 13px; color: #8b949e; display: flex; align-items: center; gap: 12px; }
+  .export-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .export-btn:hover { background: #30363d; }
+  main { padding: 24px 32px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; }
+  .stat-label { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 700; }
+  .red { color: #f85149; }
+  .yellow { color: #d29922; }
+  .blue { color: #58a6ff; }
+  .green { color: #3fb950; }
+  .chart-panel { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .chart-header h2 { font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .panel { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; }
+  .panel h2 { font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; }
+  .bar-label { width: 90px; color: #e6edf3; }
+  .bar-track { flex: 1; background: #21262d; border-radius: 4px; height: 8px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+  .bar-count { width: 50px; text-align: right; color: #8b949e; }
+  .blocked-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .blocked-table td { padding: 10px 0; border-bottom: 1px solid #21262d; vertical-align: middle; }
+  .blocked-table tr:last-child td { border-bottom: none; }
+  .tag { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600; }
+  .tag-dos { background: #3d1e1e; color: #f85149; }
+  .tag-scan { background: #2b2518; color: #d29922; }
+  .tag-brute { background: #1e1e3d; color: #79c0ff; }
+  .tag-icmp { background: #2d1f42; color: #8957e5; }
+  .alerts-table-wrap { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; }
+  .alerts-table-wrap h2 { font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+  table.alerts { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.alerts th { color: #8b949e; text-align: left; padding: 0 0 10px; font-weight: 500; border-bottom: 1px solid #30363d; }
+  table.alerts td { padding: 10px 0; border-bottom: 1px solid #21262d; color: #e6edf3; }
+  table.alerts tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Network IDS — Live Dashboard</h1>
+  <div class="status-bar">
+    <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+    <span><span class="live-dot"></span>Live monitoring</span>
+    <span id="timestamp"></span>
+  </div>
+</header>
+<main>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-label">Total alerts</div><div class="stat-value red" id="total-alerts">—</div></div>
+    <div class="stat-card"><div class="stat-label">IPs blocked</div><div class="stat-value yellow" id="ips-blocked">—</div></div>
+    <div class="stat-card"><div class="stat-label">Port scans</div><div class="stat-value blue" id="port-scans">—</div></div>
+    <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value green">Active</div></div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="chart-header">
+      <h2>Live attack rate — last 20 minutes</h2>
+      <span id="peak-label" style="font-size:12px;color:#8b949e;"></span>
+    </div>
+    <canvas id="timelineChart" height="80"></canvas>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h2>Attack breakdown</h2>
+      <div id="breakdown"></div>
+    </div>
+    <div class="panel">
+      <h2>Blocked IPs</h2>
+      <table class="blocked-table"><tbody id="blocked-table"></tbody></table>
+    </div>
+  </div>
+
+  <div class="alerts-table-wrap">
+    <h2>Recent alerts</h2>
+    <table class="alerts">
+      <thead><tr><th>Time</th><th>Attack type</th><th>Source IP</th><th>Detail</th></tr></thead>
+      <tbody id="alerts-body"></tbody>
+    </table>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
